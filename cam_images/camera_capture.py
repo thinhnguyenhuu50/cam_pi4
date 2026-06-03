@@ -5,7 +5,7 @@ from datetime import datetime
 
 # ================= CONFIGURATION =================
 
-RTSP_URL = "rtsp://admin:Duy15112001@192.168.1.64:554/Streaming/Channels/101"
+RTSP_URL = "rtsp://admin:cselabc5c6@192.168.1.200:554/Streaming/Channels/101"
 
 # API Configuration
 API_URL = "http://demo.quantraconline.com/api/Images/Upload"
