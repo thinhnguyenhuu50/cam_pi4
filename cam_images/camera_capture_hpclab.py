@@ -5,12 +5,12 @@ from datetime import datetime
 
 # ================= CONFIGURATION =================
 
-RTSP_URL = "rtsp://admin:Duy15112001@192.168.1.64:554/Streaming/Channels/101"
+RTSP_URL = "rtsp://admin:cselabc5c6@192.168.1.200:554/Streaming/Channels/101"
 
 BASE_URL = "https://sharefile.hpcc.vn"
 LOGIN_URL = BASE_URL + "/api/login"
 
-UPLOAD_FOLDER = "tomochan-camera-1"
+UPLOAD_FOLDER = "bkit-test"
 
 USERNAME = "iot"
 PASSWORD = "123456"
