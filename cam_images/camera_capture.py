@@ -7,151 +7,193 @@ from datetime import datetime
 
 RTSP_URL = "rtsp://admin:cselabc5c6@192.168.1.200:554/Streaming/Channels/101"
 
-# API Configuration
-API_URL = "http://demo.quantraconline.com/api/Images/Upload"
-STATION_CODE = "SMARTFARM"
+BASE_URL = "https://sharefile.hpcc.vn"
+LOGIN_URL = BASE_URL + "/api/login"
 
-# Capture interval (seconds)
+UPLOAD_FOLDER = "bkit-test"
+
+USERNAME = "iot"
+PASSWORD = "123456"
+
 INTERVAL = 600  # 10 minutes
 
 # =================================================
 
 
-def upload_to_api(image_bytes, filename, capture_time_str):
-    """
-    Upload image directly from RAM to API
-    """
+session = requests.Session()
+session.verify = "/etc/ssl/certs/ca-certificates.crt"
 
-    print(f"[UPLOAD] Uploading {filename} to server...")
+token = None
+
+
+def login():
+
+    global token
+
+    print("[LOGIN] Connecting server...")
+
+    payload = {
+        "username": USERNAME,
+        "password": PASSWORD
+    }
 
     try:
 
-        # Multipart form-data
-        files = {
-            'images': (
-                filename,
-                image_bytes,
-                'image/jpeg'
-            )
-        }
-
-        # Form fields
-        data = {
-            'stationcode': STATION_CODE,
-            'status': '4',
-            'time': capture_time_str
-        }
-
-        # POST request
-        response = requests.post(
-            API_URL,
-            files=files,
-            data=data,
+        r = session.post(
+            LOGIN_URL,
+            json=payload,
             timeout=30
         )
 
-        # ================= SUCCESS =================
+        if r.status_code == 200:
 
-        if response.status_code == 200:
+            token = r.text.strip()
 
-            print(f"[UPLOAD] Success!")
-            print(f"[UPLOAD] Response: {response.text}")
+            print("[LOGIN] Success")
 
-        # ================= FAILED =================
+            return True
 
-        else:
+        print("[LOGIN] Failed:", r.status_code, r.text)
 
-            print(
-                f"[UPLOAD] Failed. "
-                f"Status code: {response.status_code}"
-            )
-
-            print(f"[UPLOAD] Body: {response.text}")
+        return False
 
     except Exception as e:
 
-        print(f"[UPLOAD] Error connecting to API: {e}")
+        print("[LOGIN] Error:", e)
+
+        return False
+
+
+def capture_image():
+
+    print("[CAMERA] Connecting RTSP...")
+
+    cap = cv2.VideoCapture(RTSP_URL)
+
+    if not cap.isOpened():
+
+        print("[CAMERA] Connection failed")
+
+        return None
+
+    try:
+
+        # Flush old frames
+        for _ in range(5):
+            cap.read()
+
+        ret, frame = cap.read()
+
+        if not ret:
+
+            print("[CAMERA] Capture failed")
+
+            return None
+
+        print("[CAMERA] Frame captured")
+
+        # Encode JPEG directly in RAM
+        success, buffer = cv2.imencode(".jpg", frame)
+
+        if not success:
+
+            print("[CAMERA] JPEG encode failed")
+
+            return None
+
+        filename = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + ".jpg"
+
+        return buffer.tobytes(), filename
+
+    finally:
+
+        cap.release()
+
+
+def upload_image(image_bytes, filename):
+
+    global token
+
+    url = f"{BASE_URL}/api/resources/{UPLOAD_FOLDER}/{filename}"
+
+    headers = {
+        "X-Auth": token,
+        "Content-Type": "application/octet-stream"
+    }
+
+    print("[UPLOAD] Target:", url)
+
+    try:
+
+        r = session.post(
+            url,
+            headers=headers,
+            data=image_bytes,
+            timeout=60
+        )
+
+        # Token expired
+        if r.status_code == 401:
+
+            print("[UPLOAD] Token expired. Re-login required.")
+
+            token = None
+
+            return False
+
+        print("[UPLOAD]", r.status_code, r.text)
+
+        return r.status_code in [200, 201]
+
+    except Exception as e:
+
+        print("[UPLOAD] Error:", e)
+
+        return False
 
 
 def main():
 
+    global token
+
     print("======================================")
-    print("Camera Upload Service Started")
-    print(f"API Target : {API_URL}")
-    print(f"Interval   : {INTERVAL} seconds")
+    print("HPCC Camera Service Started")
+    print(f"Upload Folder : {UPLOAD_FOLDER}")
+    print(f"Interval      : {INTERVAL} seconds")
     print("======================================")
 
     while True:
 
-        cap = None
-
         try:
 
-            print("\n[INFO] Connecting to camera...")
+            # Login if needed
+            if not token:
 
-            cap = cv2.VideoCapture(RTSP_URL)
+                success = login()
 
-            if not cap.isOpened():
+                if not success:
 
-                print("[ERROR] Camera connection failed.")
+                    print("[SYSTEM] Login failed")
 
-                time.sleep(10)
+                    time.sleep(30)
 
-                continue
+                    continue
 
-            # Flush old frames
-            for _ in range(5):
-                cap.read()
+            # Capture image in RAM only
+            result = capture_image()
 
-            # Capture frame
-            success, frame = cap.read()
+            if result:
 
-            if success:
+                image_bytes, filename = result
 
-                now = datetime.now()
-
-                # Filename only for upload metadata
-                filename = now.strftime("%Y-%m-%d_%H-%M-%S") + ".jpg"
-
-                # API datetime format
-                api_time_str = now.strftime("%d/%m/%Y %H:%M:%S")
-
-                print("[SUCCESS] Frame captured.")
-
-                # Encode JPEG directly in RAM
-                success_encode, buffer = cv2.imencode(".jpg", frame)
-
-                if not success_encode:
-
-                    print("[ERROR] JPEG encoding failed.")
-
-                else:
-
-                    # Convert buffer to bytes
-                    image_bytes = buffer.tobytes()
-
-                    # Upload directly from memory
-                    upload_to_api(
-                        image_bytes,
-                        filename,
-                        api_time_str
-                    )
-
-            else:
-
-                print("[ERROR] Failed to grab frame.")
+                # Upload directly from memory
+                upload_image(image_bytes, filename)
 
         except Exception as e:
 
-            print(f"[EXCEPTION] System error: {e}")
+            print("[SYSTEM ERROR]", e)
 
-        finally:
-
-            # Always release camera
-            if cap is not None:
-                cap.release()
-
-        print(f"\n[WAIT] Sleeping for {INTERVAL} seconds...")
+        print(f"[WAIT] Sleeping {INTERVAL} seconds...\n")
 
         time.sleep(INTERVAL)
 
